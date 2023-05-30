@@ -5,3 +5,6 @@
 vim.opt.winbar = "%=%m %f"
 vim.opt.spelllang = "en_us"
 vim.opt.spell = true
+vim.opt.laststatus = 2
+vim.opt.showtabline = 2
+vim.opt.termguicolors = true
