@@ -1,124 +1,195 @@
 return {
+  -- add java to treesitter
+  {
+    "nvim-treesitter/nvim-treesitter",
+    opts = function(_, opts)
+      if type(opts.ensure_installed) == "table" then
+        vim.list_extend(opts.ensure_installed, { "java" })
+      end
+    end,
+  },
+
+  -- correctly setup mason lsp extensions
+  {
+    "williamboman/mason.nvim",
+    opts = function(_, opts)
+      if type(opts.ensure_installed) == "table" then
+        vim.list_extend(opts.ensure_installed, { "jdtls" })
+      end
+    end,
+  },
+
+  -- correctly setup mason dap extensions
+  {
+    "jay-babu/mason-nvim-dap.nvim",
+    opts = function(_, opts)
+      if type(opts.ensure_installed) == "table" then
+        vim.list_extend(opts.ensure_installed, { "javatest", "javadbg" })
+      end
+    end,
+  },
+
+  -- correctly setup lspconfig
   {
     "neovim/nvim-lspconfig",
     dependencies = { "mfussenegger/nvim-jdtls" },
     opts = {
+      -- configure jdtls and attach to Java ft
       setup = {
         jdtls = function(_, opts)
+          -- Determine OS
+          if vim.fn.has("mac") == 1 then
+            CONFIG = "mac"
+          elseif vim.fn.has("unix") == 1 then
+            CONFIG = "linux"
+          else
+            print("Unsupported system")
+          end
+
+          local mason_registry = require("mason-registry")
+          local jdtls_pkg = mason_registry.get_package("jdtls")
+          local jdtls_path = jdtls_pkg:get_install_path()
+          local jdtls_bin = jdtls_path .. "/bin/jdtls"
+
+          local bundles = {}
+
+          if mason_registry.has_package("java-test") and mason_registry.has_package("java-debug-adapter") then
+            -- jdtls tools configuration for debugging support
+            local java_test_pkg = mason_registry.get_package("java-test")
+            local java_test_path = java_test_pkg:get_install_path()
+
+            local java_dbg_pkg = mason_registry.get_package("java-debug-adapter")
+            local java_dbg_path = java_dbg_pkg:get_install_path()
+
+            local jar_patterns = {
+              java_dbg_path .. "/extension/server/com.microsoft.java.debug.plugin-*.jar",
+              java_test_path .. "/extension/server/*.jar",
+            }
+
+            for _, jar_pattern in ipairs(jar_patterns) do
+              for _, bundle in ipairs(vim.split(vim.fn.glob(jar_pattern), "\n")) do
+                table.insert(bundles, bundle)
+              end
+            end
+          end
+
+          local extendedClientCapabilities = vim.tbl_deep_extend("force", require("jdtls").extendedClientCapabilities, {
+            resolveAdditionalTextEditsSupport = true,
+            progressReportProvider = false,
+          })
+
+          local function print_test_results(items)
+            if #items > 0 then
+              vim.cmd([[Trouble quickfix]])
+            else
+              vim.cmd([[TroubleClose quickfix]])
+            end
+          end
+
           vim.api.nvim_create_autocmd("FileType", {
             pattern = "java",
             callback = function()
-              require("lazyvim.util").on_attach(function(_, buffer)
-                vim.keymap.set(
-                  "n",
-                  "<leader>di",
-                  "<Cmd>lua require'jdtls'.organize_imports()<CR>",
-                  { buffer = buffer, desc = "Organize Imports" }
-                )
-                vim.keymap.set(
-                  "n",
-                  "<leader>dt",
-                  "<Cmd>lua require'jdtls'.test_class()<CR>",
-                  { buffer = buffer, desc = "Test Class" }
-                )
-                vim.keymap.set(
-                  "n",
-                  "<leader>dn",
-                  "<Cmd>lua require'jdtls'.test_nearest_method()<CR>",
-                  { buffer = buffer, desc = "Test Nearest Method" }
-                )
-                vim.keymap.set(
-                  "v",
-                  "<leader>de",
-                  "<Esc><Cmd>lua require('jdtls').extract_variable(true)<CR>",
-                  { buffer = buffer, desc = "Extract Variable" }
-                )
-                vim.keymap.set(
-                  "n",
-                  "<leader>de",
-                  "<Cmd>lua require('jdtls').extract_variable()<CR>",
-                  { buffer = buffer, desc = "Extract Variable" }
-                )
-                vim.keymap.set(
-                  "v",
-                  "<leader>dm",
-                  "<Esc><Cmd>lua require('jdtls').extract_method(true)<CR>",
-                  { buffer = buffer, desc = "Extract Method" }
-                )
-                vim.keymap.set(
-                  "n",
-                  "<leader>cf",
-                  "<cmd>lua vim.lsp.buf.formatting()<CR>",
-                  { buffer = buffer, desc = "Format" }
-                )
-              end)
+              -- Find root of project
+              local root_markers = { ".git", "mvnw", "gradlew", "pom.xml", "build.gradle" }
+              local root_dir = require("jdtls.setup").find_root(root_markers)
+              if root_dir == "" then
+                return
+              end
+              local workspace_folder = "/tmp/nvim/jdtls/" .. vim.fn.fnamemodify(root_dir, ":p:h:t")
 
-              local home = os.getenv("HOME")
-
-              local project_name = vim.fn.fnamemodify(vim.fn.getcwd(), ":p:h:t")
-              -- vim.lsp.set_log_level('DEBUG')
-              local workspace_dir = home .. "/.local/share/eclipse/" .. project_name -- See `:help vim.lsp.start_client` for an overview of the supported `config` options.
-
-              local jdtls_dir = "/opt/homebrew/jdtls/1.23/"
-              local config = {
-                -- The command that starts the language server
-                -- See: https://github.com/eclipse/eclipse.jdt.ls#running-from-the-command-line
+              local jdtls = require("jdtls")
+              local jdtls_config = vim.tbl_deep_extend("force", opts, {
+                on_attach = require("lazyvim.util").on_attach(function(client, buffer)
+                  -- custom keymaps
+                  vim.keymap.set("n", "<leader>co", function()
+                    require("jdtls").organize_imports()
+                  end, { buffer = buffer, desc = "Organize Imports" })
+                  vim.keymap.set("n", "<leader>ct", function()
+                    require("jdtls").pick_test({ bufnr = buffer, after_test = print_test_results })
+                  end, { buffer = buffer, desc = "Run Test" })
+                  require("jdtls").setup_dap({ hotcodereplace = "auto" })
+                  require("jdtls.dap").setup_dap_main_class_configs()
+                  require("jdtls.setup").add_commands()
+                end),
                 cmd = {
-
-                  "java", -- or '/path/to/java17_or_newer/bin/java'
-                  -- depends on if `java` is in your $PATH env variable and if it points to the right version.
-
-                  "-javaagent:/home/jake/.local/share/java/lombok.jar",
-                  -- '-Xbootclasspath/a:/home/jake/.local/share/java/lombok.jar',
-                  "-Declipse.application=org.eclipse.jdt.ls.core.id1",
-                  "-Dosgi.bundles.defaultStartLevel=4",
-                  "-Declipse.product=org.eclipse.jdt.ls.core.product",
-                  "-Dlog.protocol=true",
-                  "-Dlog.level=ALL",
-                  -- '-noverify',
-                  "-Xms1g",
-                  "--add-modules=ALL-SYSTEM",
-                  "--add-opens",
-                  "java.base/java.util=ALL-UNNAMED",
-                  "--add-opens",
-                  "java.base/java.lang=ALL-UNNAMED",
-                  "-jar",
-                  vim.fn.glob(jdtls_dir .. "plugins/org.eclipse.equinox.launcher_*.jar"),
-                  -- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^                                       ^^^^^^^^^^^^^^
-                  -- Must point to the                                                     Change this to
-                  -- eclipse.jdt.ls installation                                           the actual version
-
-                  "-configuration",
-                  jdtls_dir .. "libexec/config_mac",
-                  -- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^        ^^^^^^
-                  -- Must point to the                      Change to one of `linux`, `win` or `mac`
-                  -- eclipse.jdt.ls installation            Depending on your system.
-
-                  -- See `data directory configuration` section in the README
+                  jdtls_bin,
                   "-data",
-                  workspace_dir,
+                  workspace_folder,
+                  "--jvm-arg=-Xms2G",
                 },
-
-                -- This is the default if not provided, you can remove it. Or adjust as needed.
-                -- One dedicated LSP server & client will be started per unique root_dir
-                root_dir = require("jdtls.setup").find_root({ ".git", "mvnw", "gradlew" }),
-
-                -- Here you can configure eclipse.jdt.ls specific settings
-                -- See https://github.com/eclipse/eclipse.jdt.ls/wiki/Running-the-JAVA-LS-server-from-the-command-line#initialize-request
-                -- for a list of options
                 settings = {
-                  java = {},
+                  java = {
+                    configuration = {
+                      updateBuildConfiguration = "automatic",
+                    },
+                    codeGeneration = {
+                      toString = {
+                        template = "${object.className}{${member.name()}=${member.value}, ${otherMembers}}",
+                      },
+                      useBlocks = true,
+                    },
+                    completion = {
+                      favoriteStaticMembers = {
+                        "org.assertj.core.api.Assertions.*",
+                        "org.junit.Assert.*",
+                        "org.junit.Assume.*",
+                        "org.junit.jupiter.api.Assertions.*",
+                        "org.junit.jupiter.api.Assumptions.*",
+                        "org.junit.jupiter.api.DynamicContainer.*",
+                        "org.junit.jupiter.api.DynamicTest.*",
+                        "org.mockito.Mockito.*",
+                        "org.mockito.ArgumentMatchers.*",
+                        "org.mockito.Answers.*",
+                      },
+                      importOrder = {
+                        "#",
+                        "java",
+                        "javax",
+                        "org",
+                        "com",
+                      },
+                    },
+                    contentProvider = { preferred = "fernflower" },
+                    eclipse = {
+                      downloadSources = true,
+                    },
+                    flags = {
+                      allow_incremental_sync = true,
+                      server_side_fuzzy_completion = true,
+                    },
+                    implementationsCodeLens = {
+                      enabled = false, --Don"t automatically show implementations
+                    },
+                    inlayHints = {
+                      parameterNames = { enabled = "literals" },
+                    },
+                    maven = {
+                      downloadSources = true,
+                    },
+                    referencesCodeLens = {
+                      enabled = false, --Don"t automatically show references
+                    },
+                    references = {
+                      includeDecompiledSources = true,
+                    },
+                    saveActions = {
+                      organizeImports = true,
+                    },
+                    signatureHelp = { enabled = true },
+                    sources = {
+                      organizeImports = {
+                        starThreshold = 9999,
+                        staticStarThreshold = 9999,
+                      },
+                    },
+                  },
                 },
-                handlers = {
-                  ["language/status"] = function(_, result)
-                    -- print(result)
-                  end,
-                  ["$/progress"] = function(_, result, ctx)
-                    -- disable progress updates.
-                  end,
+                init_options = {
+                  extendedClientCapabilities = extendedClientCapabilities,
+                  bundles = bundles,
                 },
-              }
-              require("jdtls").start_or_attach(config)
+              })
+              jdtls.start_or_attach(jdtls_config)
             end,
           })
           return true
