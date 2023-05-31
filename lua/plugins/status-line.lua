@@ -33,33 +33,40 @@ return {
             "-lsp_name",
             "left_sep",
             " ",
+            "right_sep",
             "-line_column",
             "left_sep",
+            " ",
           },
         },
 
         defaults = {
-          fg = "#ffffff",
-          cool_symbol = "碌",
+          fg = "#f4f4f9",
+          cool_symbol = "",
           left_separator = "",
           right_separator = "",
-          -- line_column = "%l:%c [%L]",
+          line_column = "%l:%c [%L]",
           true_colors = true,
-          line_column = "[%l:%c] 並%p%% ",
-          -- font_active = "bold"
+          font_active = "bold",
         },
         mode_colors = {
-          n = "#181a23",
-          i = "#f27649",
-          ic = "#181a23",
-          c = "#2a5948",
-          v = "#4973f2", -- etc
+          n = "#134074",
+          i = "#ff4800",
+          ic = "#F72585",
+          c = "#724cf9",
+          v = "#5c967a", -- etc
         },
         mode_icons = {
-          n = " ",
-          i = " ",
-          c = " ",
-          v = " ", -- etc..
+          n = "󰫻",
+          i = "󱂈",
+          c = "󰬁",
+          v = "󱂌", -- etc..
+        },
+        lsp_symbols = {
+          Error = " ",
+          Info = " ",
+          Warn = " ",
+          Hint = "",
         },
       })
     end,
